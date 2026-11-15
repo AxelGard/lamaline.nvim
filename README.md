@@ -54,9 +54,25 @@ require("lamaline").setup({
   dismiss_keymap = "<A-e>",  -- false to disable
   context_before = 100,      -- lines of context before the cursor
   context_after = 30,        -- lines of context after the cursor
+  include_path = true,       -- tell the model the file's path (see below)
   max_tokens = 64,
   temperature = 0.1,
   timeout = 10,              -- seconds
   hl_group = "Comment",      -- highlight for the ghost text
 })
 ```
+
+### File path context
+
+With `include_path` on, the prompt starts with a comment holding the file's
+path, written in the buffer's `commentstring`. The path is relative to the
+git root, or the cwd, or just `parent/file` when the file is outside both:
+
+```lua
+-- Path: lua/lamaline/init.lua
+```
+
+This helps the model pick the right language and conventions when the code
+around the cursor is ambiguous (short files, the top of a file, `.h`, `.ts`
+vs `.js`, ...). The comment is only sent to the model, never inserted.
+

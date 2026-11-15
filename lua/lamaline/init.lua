@@ -13,6 +13,9 @@ M.config = {
   -- Lines of context sent before and after the cursor.
   context_before = 100,
   context_after = 30,
+  -- Start the prompt with a comment holding the file's path (relative to the
+  -- git root or cwd), so the model knows the language and project layout.
+  include_path = true,
   max_tokens = 64,
   temperature = 0.1,
   timeout = 10, -- seconds
@@ -49,6 +52,28 @@ function M.is_visible()
   return state.suggestion ~= nil
 end
 
+-- A comment line like "-- Path: lua/lamaline/init.lua" for the buffer, or nil.
+local function path_header(buf)
+  local name = vim.api.nvim_buf_get_name(buf)
+  local cs = vim.bo[buf].commentstring
+  if name == "" or vim.bo[buf].buftype ~= "" or not cs:find("%s", 1, true) then
+    return nil
+  end
+  local root = vim.fs.root(buf, ".git")
+  local path
+  if root and name:sub(1, #root + 1) == root .. "/" then
+    path = name:sub(#root + 2)
+  else
+    path = vim.fn.fnamemodify(name, ":.")
+    -- Outside the cwd: keep just "parent/file" rather than an absolute path.
+    if path:sub(1, 1) == "/" then
+      path = vim.fn.fnamemodify(name, ":h:t") .. "/" .. vim.fn.fnamemodify(name, ":t")
+    end
+  end
+  -- Escape "%" in the path so gsub treats it literally.
+  return (cs:gsub("%%s", (("Path: " .. path):gsub("%%", "%%%%"))))
+end
+
 local function get_context(buf, row, col)
   local cfg = M.config
   local first = math.max(0, row - cfg.context_before)
@@ -58,6 +83,12 @@ local function get_context(buf, row, col)
   local after = vim.api.nvim_buf_get_lines(buf, row + 1, last, false)
 
   table.insert(before, line:sub(1, col))
+  if cfg.include_path then
+    local header = path_header(buf)
+    if header then
+      table.insert(before, 1, header)
+    end
+  end
   local suffix_lines = { line:sub(col + 1) }
   vim.list_extend(suffix_lines, after)
   return table.concat(before, "\n"), table.concat(suffix_lines, "\n"), line:sub(col + 1)

@@ -55,7 +55,8 @@ require("lamaline").setup({
   context_before = 100,      -- lines of context before the cursor
   context_after = 30,        -- lines of context after the cursor
   include_path = true,       -- tell the model the file's path (see below)
-  other_buffers = {          -- snippets from other open buffers; false to disable
+  include_other_buffers = true, -- add snippets from other open buffers (see below)
+  other_buffers = {          -- tuning for include_other_buffers
     max_buffers = 3,         -- snippets to include, one per buffer
     max_lines = 40,          -- lines per snippet
     same_filetype = true,    -- only buffers with the current filetype
@@ -83,7 +84,7 @@ vs `.js`, ...). The comment is only sent to the model, never inserted.
 
 ### Other open buffers
 
-With `other_buffers` on, lamaline also looks through your other open
+With `include_other_buffers` on, lamaline also looks through your other open
 buffers (the 10 most recently used ones of the same filetype) and picks
 the part of each that shares the most words with the code around your
 cursor. The best `max_buffers` matches go into the prompt above the current
@@ -101,6 +102,6 @@ patterns from them:
 Turn it off with:
 
 ```lua
-require("lamaline").setup({ other_buffers = false })
+require("lamaline").setup({ include_other_buffers = false })
 ```
 

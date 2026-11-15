@@ -17,7 +17,8 @@ local defaults = {
   -- git root or cwd), so the model knows the language and project layout.
   include_path = true,
   -- Add the most relevant snippets from other open buffers to the prompt.
-  -- Set to false to turn this off.
+  include_other_buffers = true,
+  -- Tuning for include_other_buffers.
   other_buffers = {
     max_buffers = 3, -- snippets to include, one per buffer
     max_lines = 40, -- lines per snippet
@@ -188,7 +189,7 @@ local function get_context(buf, row, col)
   table.insert(before, line:sub(1, col))
 
   local snippets = {}
-  if cfg.other_buffers then
+  if cfg.include_other_buffers and cfg.other_buffers then
     local query = vim.list_slice(before, math.max(1, #before - cfg.other_buffers.max_lines + 1))
     snippets = other_buffer_snippets(buf, query)
   end

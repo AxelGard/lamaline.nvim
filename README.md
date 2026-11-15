@@ -37,6 +37,8 @@ In insert mode:
 | `<A-e>`     | Dismiss the completion                              |
 
 Alt keys need your terminal to send Option as Alt (e.g. Ghostty `macos-option-as-alt = left`).
+`request_keymap` and `accept_keymap` can be set to different keys (any of them can be `false`).
+A separate accept key keeps its normal behaviour when no completion is shown, so e.g. `<Tab>` still indents.
 Typing or moving the cursor also dismisses it. `:LamalineComplete` requests a completion too.
 
 ## Configuration
@@ -47,7 +49,8 @@ Defaults:
 require("lamaline").setup({
   url = "http://localhost:11434/api/generate",
   model = "qwen2.5-coder:1.5b-base",
-  keymap = "<A-Space>",      -- request / accept
+  request_keymap = "<A-Space>", -- request a completion
+  accept_keymap = "<A-Space>",  -- accept it (same key as request: toggles)
   dismiss_keymap = "<A-e>",  -- false to disable
   context_before = 100,      -- lines of context before the cursor
   context_after = 30,        -- lines of context after the cursor

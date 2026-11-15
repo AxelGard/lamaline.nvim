@@ -4,8 +4,10 @@ local M = {}
 M.config = {
   url = "http://localhost:11434/api/generate",
   model = "qwen2.5-coder:1.5b-base",
-  -- Insert-mode key that requests a completion, and accepts it while one is shown.
-  keymap = "<A-Space>",
+  -- Insert-mode keys that request and accept a completion. When both are the
+  -- same key, it requests when nothing is shown and accepts otherwise.
+  request_keymap = "<A-Space>",
+  accept_keymap = "<A-Space>",
   -- Insert-mode key that dismisses a shown completion (false to disable).
   dismiss_keymap = "<A-e>",
   -- Lines of context sent before and after the cursor.
@@ -169,8 +171,23 @@ function M.setup(opts)
   M.config = vim.tbl_deep_extend("force", M.config, opts or {})
   local cfg = M.config
 
-  if cfg.keymap then
-    vim.keymap.set("i", cfg.keymap, M.trigger, { desc = "lamaline: complete / accept line" })
+  local function termcodes(key)
+    return key and vim.api.nvim_replace_termcodes(key, true, true, true)
+  end
+  if cfg.request_keymap and termcodes(cfg.request_keymap) == termcodes(cfg.accept_keymap) then
+    vim.keymap.set("i", cfg.request_keymap, M.trigger, { desc = "lamaline: complete / accept line" })
+  else
+    if cfg.request_keymap then
+      vim.keymap.set("i", cfg.request_keymap, M.request, { desc = "lamaline: complete line" })
+    end
+    if cfg.accept_keymap then
+      vim.keymap.set("i", cfg.accept_keymap, function()
+        if not M.accept() then
+          -- Nothing to accept: let the key do what it normally does.
+          vim.api.nvim_feedkeys(termcodes(cfg.accept_keymap), "n", false)
+        end
+      end, { desc = "lamaline: accept completion" })
+    end
   end
   if cfg.dismiss_keymap then
     vim.keymap.set("i", cfg.dismiss_keymap, M.clear, { desc = "lamaline: dismiss completion" })

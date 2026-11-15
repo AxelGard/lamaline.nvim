@@ -8,8 +8,6 @@ local defaults = {
   -- same key, it requests when nothing is shown and accepts otherwise.
   request_keymap = "<A-Space>",
   accept_keymap = "<A-Space>",
-  -- Insert-mode key that dismisses a shown completion (false to disable).
-  dismiss_keymap = "<A-e>",
   -- Lines of context sent before and after the cursor.
   context_before = 100,
   context_after = 30,
@@ -332,9 +330,6 @@ function M.setup(opts)
       end, { desc = "lamaline: accept completion" })
     end
   end
-  if cfg.dismiss_keymap then
-    vim.keymap.set("i", cfg.dismiss_keymap, M.clear, { desc = "lamaline: dismiss completion" })
-  end
 
   local group = vim.api.nvim_create_augroup("lamaline", { clear = true })
   vim.api.nvim_create_autocmd({ "CursorMovedI", "TextChangedI", "InsertLeave", "BufLeave" }, {
@@ -345,6 +340,15 @@ function M.setup(opts)
       end
     end,
   })
+
+  -- Any other key the user types rejects the suggestion (or cancels the
+  -- pending request), even ones that neither move the cursor nor edit.
+  local own_keys = { [termcodes(cfg.request_keymap) or ""] = true, [termcodes(cfg.accept_keymap) or ""] = true }
+  vim.on_key(function(_, typed)
+    if typed and typed ~= "" and not own_keys[typed] and (state.suggestion or state.job) then
+      vim.schedule(M.clear)
+    end
+  end, ns)
 
   vim.api.nvim_create_user_command("LamalineComplete", M.request, { desc = "Request a line completion" })
 end

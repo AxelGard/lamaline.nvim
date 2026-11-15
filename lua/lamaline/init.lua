@@ -1,7 +1,7 @@
 -- lamaline.nvim: on-demand line completion using a local model (Ollama).
 local M = {}
 
-M.config = {
+local defaults = {
   url = "http://localhost:11434/api/generate",
   model = "qwen2.5-coder:1.5b-base",
   -- Insert-mode keys that request and accept a completion. When both are the
@@ -16,11 +16,20 @@ M.config = {
   -- Start the prompt with a comment holding the file's path (relative to the
   -- git root or cwd), so the model knows the language and project layout.
   include_path = true,
+  -- Add the most relevant snippets from other open buffers to the prompt.
+  -- Set to false to turn this off.
+  other_buffers = {
+    max_buffers = 3, -- snippets to include, one per buffer
+    max_lines = 40, -- lines per snippet
+    same_filetype = true, -- only use buffers with the current buffer's filetype
+  },
   max_tokens = 64,
   temperature = 0.1,
   timeout = 10, -- seconds
   hl_group = "Comment",
 }
+
+M.config = vim.deepcopy(defaults)
 
 local ns = vim.api.nvim_create_namespace("lamaline")
 
@@ -74,6 +83,100 @@ local function path_header(buf)
   return (cs:gsub("%%s", (("Path: " .. path):gsub("%%", "%%%%"))))
 end
 
+-- Bounds on the work done looking through other buffers.
+local MAX_CANDIDATES = 10
+local MAX_SCAN_LINES = 5000
+
+-- Keywords common to many languages; they say nothing about relevance.
+local STOPWORDS = {}
+for word in ([[
+  and as break case class const continue def do elif else elseif end export
+  false fn for from func function if import in is let local nil none not null
+  or pass pub return self static then this true try type use var while with
+]]):gmatch("%S+") do
+  STOPWORDS[word] = true
+end
+
+local function tokens(lines)
+  local set = {}
+  for _, line in ipairs(lines) do
+    for word in line:gmatch("[%w_]+") do
+      if #word > 1 and not STOPWORDS[word:lower()] then
+        set[word] = true
+      end
+    end
+  end
+  return set
+end
+
+local function jaccard(a, b)
+  local inter, union = 0, 0
+  for word in pairs(a) do
+    union = union + 1
+    if b[word] then inter = inter + 1 end
+  end
+  for word in pairs(b) do
+    if not a[word] then union = union + 1 end
+  end
+  return union == 0 and 0 or inter / union
+end
+
+-- The window of `size` lines in buf most similar to `query`: score, lines.
+local function best_window(buf, query, size)
+  local lines = vim.api.nvim_buf_get_lines(buf, 0, MAX_SCAN_LINES, false)
+  local last_start = math.max(1, #lines - size + 1)
+  local step = math.max(1, math.floor(size / 2))
+  local best_score, best_start = 0, nil
+  local start = 1
+  while true do
+    local score = jaccard(query, tokens(vim.list_slice(lines, start, start + size - 1)))
+    if score > best_score then
+      best_score, best_start = score, start
+    end
+    if start == last_start then break end
+    start = math.min(start + step, last_start)
+  end
+  if not best_start then return nil end
+  return best_score, vim.list_slice(lines, best_start, best_start + size - 1)
+end
+
+-- Lines holding the best-matching snippet of each relevant other buffer,
+-- each under its path header, most relevant last (closest to the cursor).
+local function other_buffer_snippets(buf, query_lines)
+  local opts = M.config.other_buffers
+  local query = tokens(query_lines)
+  local filetype = vim.bo[buf].filetype
+
+  local infos = vim.fn.getbufinfo({ buflisted = 1, bufloaded = 1 })
+  table.sort(infos, function(a, b) return a.lastused > b.lastused end)
+
+  local scored, candidates = {}, 0
+  for _, info in ipairs(infos) do
+    local b = info.bufnr
+    if b ~= buf and vim.bo[b].buftype == ""
+      and (not opts.same_filetype or vim.bo[b].filetype == filetype) then
+      local header = path_header(b)
+      if header then
+        candidates = candidates + 1
+        local score, lines = best_window(b, query, opts.max_lines)
+        if score then
+          table.insert(scored, { score = score, header = header, lines = lines })
+        end
+        if candidates >= MAX_CANDIDATES then break end
+      end
+    end
+  end
+  table.sort(scored, function(a, b) return a.score > b.score end)
+
+  local out = {}
+  for i = math.min(#scored, opts.max_buffers), 1, -1 do
+    table.insert(out, scored[i].header)
+    vim.list_extend(out, scored[i].lines)
+    table.insert(out, "")
+  end
+  return out
+end
+
 local function get_context(buf, row, col)
   local cfg = M.config
   local first = math.max(0, row - cfg.context_before)
@@ -83,12 +186,20 @@ local function get_context(buf, row, col)
   local after = vim.api.nvim_buf_get_lines(buf, row + 1, last, false)
 
   table.insert(before, line:sub(1, col))
-  if cfg.include_path then
+
+  local snippets = {}
+  if cfg.other_buffers then
+    local query = vim.list_slice(before, math.max(1, #before - cfg.other_buffers.max_lines + 1))
+    snippets = other_buffer_snippets(buf, query)
+  end
+  -- The current file needs its header to be told apart from the snippets.
+  if cfg.include_path or #snippets > 0 then
     local header = path_header(buf)
     if header then
       table.insert(before, 1, header)
     end
   end
+  before = vim.list_extend(snippets, before)
   local suffix_lines = { line:sub(col + 1) }
   vim.list_extend(suffix_lines, after)
   return table.concat(before, "\n"), table.concat(suffix_lines, "\n"), line:sub(col + 1)
@@ -199,7 +310,7 @@ function M.trigger()
 end
 
 function M.setup(opts)
-  M.config = vim.tbl_deep_extend("force", M.config, opts or {})
+  M.config = vim.tbl_deep_extend("force", defaults, opts or {})
   local cfg = M.config
 
   local function termcodes(key)
